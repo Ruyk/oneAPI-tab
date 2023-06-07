@@ -9,7 +9,7 @@ group discusses how work done within the oneAPI open source
 implementations can contribute to the ISO C++ and SYCL
 specifications managed by ISO and Khronos.
 
-The language TAB is led by Ruyman Reyes Castro <ruyman@codeplay.com>
+The language SIG is led by Ruyman Reyes Castro <ruyman@codeplay.com>
 
 To find out how to join the Language SIG `get in touch. <https://www.oneapi.io/community/>`__
 
@@ -22,6 +22,101 @@ Potential Topics
 * Error handling
 * Function pointers revisited
 * oneDPL C++ standard library support
+
+2023-06-07
+==========
+
+* Ruyman Reyes (Codeplay/Intel)
+* Rod Burns (Codeplay)
+* Cohn, Robert S (Intel)
+* Tom Deakin (Bristol)
+* Victor Lomuller (Codeplay)
+* Khaldi, Dounia (Intel)
+* Spruit, Neil R (Intel)
+* Andrew Richards (Codeplay/Intel)
+* Reinders, James R (Intel)
+* Yates, Brandon (Intel)
+* Slavova, Gergana S (Intel)
+* Voss, Michael J (Intel)
+* Brodman, James (Intel)
+* Xiong, Jianxin (Intel)
+* Mehdi Goli (Codeplay)
+* Keryell, Ronan (XILINX LABS)
+* Tu, Peng (Intel)
+* Benie (Codeplay)
+* Andrew Lumsdaine (University of Washington)
+* Lueck, Gregory M (Intel)
+* Richards, Alison L (Intel)
+* Arteaga Molina, Jaime A (Intel)
+* Lowney, Geoff (Intel)
+* Mcguire, Russell W (Intel)
+* Alastair Murray (Codeplay)
+* Kukanov, Alexey (Intel)
+* Videau, Brice (ANL)
+* Wells, Alex M (Intel)
+* Melonakos, John (Intel)
+
+Joint matrix extension for SYCL and SPIR-V
+============================================
+
+Dounia Khaldi (Intel) presents (`Slides <presentations/2023-06-07-DK-matrix-oneapi-language.pdf>`__)
+
+* Users contributing to the extensions in the repo, and porting the extension to MLIR
+* Different levels of abstraction are exposed to different users. Joint matrix is aim for the middle. Breaks down gemm into primitives, its low level, but its portable across targets.
+* Presentation will cover both the SPIR-V and the SYCL extension, both are needed for different targets
+* Joint matrix relies in various abstractions for code generation
+* Joint matrix is not a replacement of the framework and the libraries, this is useful when implementing new operations or optimizing unexpected combinations of operations
+* This is also useful also for library developers, they need to write code that is portable
+* On Data Center Max GPU (a.k.a PVC), there are two stack, each 2 stack has core slices. Each slices has 16 XE core. 8 vector engines and 8 XMX engines. 
+* On the CPU side, Each core ahs an AMX engine, specific sizes are allowed for the gemm blocks due to register file limitations.
+* You would need a lot of different intrinsics if you were to do it manually, but we have designed the SYCL extension to avoid that
+* Note its an experimental API so it may change from one release to the other.
+* The joint matrix has a type of group, only subgroup is supported. Use is the matrix A,B or accumulator for GEMM, then you specify the shape (Rows, columns) and the layout.
+* There are various operations supported, fill, load, store.
+* Example on slides show multiply in SYCL. The load and mad happen on the K loop.
+* You can do an element-wise operation with data that is on the join_matrix
+* Q (Ronan): can you do negative strides or is just unsigned?
+* A: Stride must be a positive number.
+* Same example and source can run across Intel CPU, GPU and NVIDIA GPU.
+* Additional functions to pass row/col. This is intel specific, nvidia cannot support this on tensorcores
+* Q(Ruyman): Any restrictions on element wise operations supported?\
+* A(Douina): No restriction, any SYCL kernel code is valid
+* Size combinations are different between AMX and XMX, and even between generations of XMX. NVIDIA Has different numbers. Need to use the right numbers.
+* How do we write portable code? There is a query interface, static and dynamic
+* Static queries require hardware architecture checks. Basic code is similar between SYCL joint matrix and CUDA Fragments
+* CUDA code migration shouldnt be a problem, its very close
+* The joint matrix extension in MLIR generates SPIRV code for multiple backends
+* Next steps: SYCL and SPIRV standarization
+
+Joint Matrix extension on Tensor Cores
+==========================================
+Mehdi Goli (Codeplay) presents `Slides <presentations/2023-06-07-JointMatrix_NVIDIA.pdf>`__
+
+* Gemms are used everywhere and its very important we cover that
+* Joint Matrix Performance analysis, showing support for SM72 and SM80 (Jetson and Ampere)
+* We use the extension on both, we can achieve 97% of cuDNN on Jetson,
+* On SM80 , A100 we use the extension with different sizes
+* Slide with performance comparison with cutlas and cudnn. SYCL-BLAS Half and TF32 performance is slightly better for small sizes but gets much worse for bigger sizes
+* NVIDIA uses ldmatrix and cp.async (Shared Store From Global Load) to get higher performance. These instructions allow to bypass the cache. Tensorcore support has evolved across different nvidia architectures, and they have added new instructions that support some advanced features using a different part of the PTX ISA (wmma vs mma).
+* WMMA is a higher level instruction that mapps to multiple HMMA instructions on the SASS. MMA instructions map to a single hmma wherever possible, or backwards compatible breaks down to multiple hmma instructions for previous geneerations
+* WMMA is exposed in CUDA and what we use today for joint_matrix extension, whereas MMA is what cutlas and other use via hard-coding assembly. Results from NVIDIA suggest WMMA is slower than MMA.
+* The performance gap from our joint matrix numbers is due to the lack of cp.async and needs to be added to DPCPP. Need somehow to expose the mma instruction to DPCPP so that we can fix the performance gap.
+* Q(Ruyman) you mean supporting it within joint_matrix extension?
+* A(Mehdi):  Yes should be possible
+* Q(Jianxin): This would be an implementation detail not exposed to the user?
+* A(Mehdi):  Yes, thats the hope
+* Q(Geoff): Why don't we load this on local memory?
+* A(Mehdi): Is not supported in our backend
+* Q(Geoff):  If we preload the stuff in SLM wouldnt be get more performance? 
+* A(Mehdi): Our backend does nto supported, this is one of the key factor on th eperformance problems we see.
+* Q(Dounia) Are there technical challenges on the move?
+* A(Mehdi): Its a lot of different configurations and maintenance to the backend. Individual mapping of builtins is difficult. 
+* Q(Dounia): ATS and PVC  sizes are different, thats why we have the query. Implementaiton is bigger but its transparent, the user have to type which hardware they have.
+* Q(Geoff): Any matrix multiplication should tile itself onto SLM but seems its not the case? why joint matrix should be 3 times slower? they have a nice feature to do it on the ISA but you can do that yourself right?
+* A(Mehdi): They use a different instruction to implement the loading that gives better performance
+
+(Meeting runs out of time)
+
 
 2023-03-14
 ==========
